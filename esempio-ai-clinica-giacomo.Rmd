@@ -1,0 +1,249 @@
+---
+title: 'Ottimizzare la visualizzazione di dati clinici: un esempio riproducibile in
+  R'
+author: "Jonathan Montomoli"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  pdf_document:
+    latex_engine: pdflatex
+    toc: false
+    number_sections: true
+    fig_caption: true
+  word_document:
+    toc: false
+subtitle: Risposta pratica al post di Giacomo su Gemini + Google Sheets
+geometry: margin=2.2cm
+fontsize: 10pt
+mainfont: Helvetica
+header-includes:
+- \usepackage{float}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead[L]{AI clinica deterministica}
+- \fancyhead[R]{\thepage}
+- \renewcommand{\headrulewidth}{0.2pt}
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo        = TRUE,
+  warning     = FALSE,
+  message     = FALSE,
+  fig.align   = "center",
+  fig.width   = 6.6,
+  fig.height  = 3.6,
+  out.width   = "92%"
+)
+
+# ---- Installazione automatica dei pacchetti mancanti ----
+required_pkgs <- c("tidyverse", "scales", "knitr", "kableExtra", "patchwork")
+to_install <- setdiff(required_pkgs, rownames(installed.packages()))
+if (length(to_install) > 0) {
+  install.packages(to_install, repos = "https://cloud.r-project.org")
+}
+
+invisible(lapply(required_pkgs, library, character.only = TRUE))
+
+set.seed(42)  # riproducibilità deterministica
+```
+
+# Contesto
+
+Questo documento nasce come risposta a un post pubblicato su LinkedIn da **Giacomo**, in cui condivide la frustrazione di un compito apparentemente banale — chiedere a Gemini un grafico a percentuale per divisione chirurgica — che dopo due iterazioni (colori non cambiati, export in Sheets con assi da miliardi) lo ha portato a concludere "faccio prima a mano".
+
+al link il posto originale:
+
+<https://www.linkedin.com/posts/giacomo-bellani-890a59144_intelligenzaartificiale-ai-gemini-activity-7452757651706273792-gzM3?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAiAoq4BkknBHj2RYt3Kl6gDIvVZD4ZkLDg>
+
+Il flusso con cui è nato questo `.Rmd` è esso stesso parte dell'esempio:
+
+1.  **Inizio turno di notte in Terapia Intensiva**. Dopo le consegne, durante i primi minuti di calma relativa, leggo il post di Giacomo.
+2.  Scrivo **di getto**, senza ottimizzare la struttura, un prompt a un modello linguistico chiedendogli di generare un file `.Rmd` che mimi le variabili dei tre grafici mostrati e produca un output PDF di 3–4 pagine.
+3.  Il file `.Rmd` restituito lo esporto in una repository pubblica — nome di lavoro **`clinical-ai-workflows`** — pensata per raccogliere esempi analoghi di *AI-assisted, human-deterministic* nel data work clinico.
+4.  Incollo il link alla repository sotto il post originale di Giacomo come replica concreta.
+
+## Prompt originale (così come è stato scritto nel chatbot)
+
+*"vorrei dare un esempio di un utilizzo dell'AI in maniera ottimizzabile a Giacomo che ha postato questo post su linkedin di cui ti allego il testo e le immagini.*
+
+*\<\<OK, io non sono un grande esperto di hashtag#IntelligenzaArtificiale hashtag#AI, la uso poco, per fare cose semplici. Ma capisco che sarà sempre più parte del nostro futuro e può aiutare molto. Oggi partendo da un foglio google chiedo a hashtag#gemini un grafico. Ottengo il grafico nella immagine (1).*
+
+*Non male penso. Allora chiedo "puoi usare il rosso per il no e verde per il sì"? Ottengo il grafico (2).*
+
+*Mh, faccio prima a correggerlo a mano. Clicco "Esporta in fogli" ottengo il risultato (3).*
+
+*Allora decido di fare io il grafico con la tabella Pivot. Davvero non voglio apparire un "oscurantista retrogrado" che nega il progresso. Sicuramente ci sono moltissime persone/organizzazioni che usano la hashtag#AI con profitto. Però io davvero fatico a inserirla nella mia routine. Onestamente, chi è più esperto di me in hashtag#AI cosa farebbe in una situazione così. \>\>*
+
+*sei un esperto di data science in ambito biomedico con una estesa conoscenza del setting clinico, mi crei un file .rmd di R il cui output contenga la creazione di un database sintetico che possa mimare le variabili in foto, e dal quale creare diveri modalità di descrizione grafica delle variabili contenute. i codici li caricherà nel mio R studio devono contenere anche i comandi per un knit ottimizzato per file pdf e il caricamento delle library da utilizzare incluso il comando per l' installazione dei pacchetti se non già installati. il file output deve essere un file di 3-4 pagine massimo in cui si possa mostrare a giacomo come si possa tentare di ottimizzare i processi mantenendo il controllo dei codici in maniera deterministica utilizzando gli strumenti adeguati ai task richiesti. cerca inoltre di fornire una breve descrizione in linguaggio non troppo tecnico sul perchè l'utilizzo di gemini in quel setting non abbia dato i risultati attesi. l'output deve essere generato come artefatto già in .rmd così da poterlo direttamente importare nella mia repository github e condividerlo direttamente a Giacomo con un link in risposta al suo post. all'inizio del file introduci riportando per intero il prompt che ti ho dato e descrivendo in maniera dettagliata quello che ho fatto:*
+
+*1. ad inizio del turni di notte in ICU dopo aver preso le consegne, ho visto il post di giacomo.\
+2. ho scirtto questo prompt di fretta senza pensare troppo all'ottimizzazione della struttura.\
+3. avrò esportato il file .rmd che mi fornirai in una repository pubblica che creerò per postare altri esempi come questo e per cui puoi inventare tu il nome.\
+4. avrò incollato e copiato il link di condivisione sotto al post di giacomo.*
+
+# Perché Gemini, in quel setting, non ha funzionato
+
+In linguaggio non tecnico, tre cose distinte:
+
+1.  **Gli assistenti generativi non sono deterministici.** Lo stesso prompt può produrre grafici diversi in momenti diversi. Quando Giacomo ha chiesto "rosso per il no e verde per il sì", il modello ha rigenerato *un nuovo grafico*, applicando la regola a un livello sbagliato (palette generica invece di *valore → colore*). L'istruzione non è stata ignorata per cattiveria: non esisteva un "oggetto grafico" da modificare, esisteva solo un nuovo tentativo.
+2.  **Il passaggio Gemini → Sheets spezza la logica.** Sono due motori diversi. L'export non trasferisce "l'idea" del grafico, trasferisce una tabella che Sheets reinterpreta con le sue regole. Se una colonna di percentuali viene letta come testo o se Sheets sceglie *somma* invece di *conteggio*, compaiono assi da miliardi — esattamente l'immagine 3.
+3.  **Non si vede il codice.** Senza codice non c'è un punto in cui scrivere "questa è la regola". Ogni correzione è un tentativo, e il secondo tentativo non parte dal primo.
+
+La proposta: **lasciare all'AI il ruolo in cui eccelle** (generare la prima bozza di uno script, commentarla, suggerire alternative) e **riportare il controllo dell'output finale a uno strumento deterministico** come R + `ggplot2`, dove la regola *"No → rosso, Si → verde"* si scrive una volta e vale per sempre.
+
+# Dataset sintetico
+
+Ricostruisco una struttura plausibile: 10 divisioni operanti, una variabile binaria di esito — nome generico perché quello dell'immagine originale è oscurato (può essere riammissione a 30 giorni, complicanza maggiore, mancata dimissione entro target: il pattern è identico).
+
+```{r dataset}
+divisioni <- c("Ch. Plastica/Senologica", "Ch. Vascolare", "Chirurgia 1",
+               "Chirurgia 2", "Gastroenterologia", "Ginecologia/Ostetricia",
+               "Maxillo-facciale", "ORL", "Ortopedia", "Urologia")
+
+numerosita <- c(180, 260, 420, 380, 310, 290, 140, 220, 510, 330)
+prob_si    <- c(0.22, 0.02, 0.05, 0.17, 0.003, 0.11, 0.31, 0.24, 0.01, 0.04)
+
+dati <- purrr::map2_dfr(
+  seq_along(divisioni), divisioni,
+  function(i, nome) {
+    tibble(
+      id_paziente = sprintf("%02d-%04d", i, seq_len(numerosita[i])),
+      divisione   = nome,
+      esito       = sample(c("Si", "No"),
+                           size    = numerosita[i],
+                           replace = TRUE,
+                           prob    = c(prob_si[i], 1 - prob_si[i]))
+    )
+  }
+)
+
+dati$esito <- factor(dati$esito, levels = c("No", "Si"))
+```
+
+```{r tabella_sintesi, echo=FALSE}
+dati %>%
+  count(divisione, esito) %>%
+  group_by(divisione) %>%
+  mutate(perc = n / sum(n)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = esito, values_from = c(n, perc), values_fill = 0) %>%
+  transmute(
+    Divisione  = divisione,
+    `N tot`    = n_No + n_Si,
+    `N No`     = n_No,
+    `N Si`     = n_Si,
+    `% Si`     = percent(perc_Si, accuracy = 0.1)
+  ) %>%
+  kable(booktabs = TRUE, align = "lrrrr",
+        caption = "Sintesi per divisione (dataset sintetico).") %>%
+  kable_styling(latex_options = c("hold_position"), font_size = 9)
+```
+
+# Visualizzazioni
+
+Due vincoli espliciti risolvono in partenza i problemi del post di Giacomo:
+
+-   **Mappatura colore legata al valore**: `scale_fill_manual(values = c("No" = "#D62728", "Si" = "#2CA02C"))`. Non è la palette della barra a essere rossa/verde, è il *livello* del fattore. Riaprendo il file a distanza di mesi, il risultato è identico.
+-   **Formato percentuale dichiarato sull'asse** via `scales::percent_format()`: nessun rischio di interpretazione ambigua tra proporzione, percentuale e valore assoluto.
+
+```{r palette}
+palette_esito <- c("No" = "#D62728", "Si" = "#2CA02C")  # la regola richiesta
+```
+
+## Barre impilate orizzontali in percentuale
+
+```{r plot_stacked, fig.cap="Percentuale di esito Si/No per divisione, ordinata sul tasso di Si."}
+ordine <- dati %>%
+  group_by(divisione) %>%
+  summarise(p = mean(esito == "Si"), .groups = "drop") %>%
+  arrange(p) %>% pull(divisione)
+
+dati %>%
+  mutate(divisione = factor(divisione, levels = ordine)) %>%
+  ggplot(aes(y = divisione, fill = esito)) +
+  geom_bar(position = "fill", width = 0.7) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(values = palette_esito) +
+  labs(x = NULL, y = NULL, fill = "Esito") +
+  theme_minimal(base_size = 10) +
+  theme(panel.grid.major.y = element_blank(), legend.position = "top")
+```
+
+## Lollipop del solo tasso di Si
+
+Spesso il messaggio utile è *il tasso*.
+Un lollipop ordinato lo comunica meglio di una barra impilata.
+
+```{r plot_lollipop, fig.height=3.1, fig.cap="Tasso di esito 'Si' per divisione."}
+tassi <- dati %>%
+  group_by(divisione) %>%
+  summarise(perc_si = mean(esito == "Si"),
+            n       = n(), .groups = "drop") %>%
+  arrange(perc_si) %>%
+  mutate(divisione = factor(divisione, levels = divisione))
+
+ggplot(tassi, aes(x = perc_si, y = divisione)) +
+  geom_segment(aes(x = 0, xend = perc_si, yend = divisione),
+               colour = "grey70") +
+  geom_point(size = 3, colour = palette_esito[["Si"]]) +
+  geom_text(aes(label = percent(perc_si, accuracy = 0.1)),
+            hjust = -0.25, size = 3) +
+  scale_x_continuous(labels = percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.18))) +
+  labs(x = "% pazienti con esito 'Si'", y = NULL) +
+  theme_minimal(base_size = 10) +
+  theme(panel.grid.major.y = element_blank())
+```
+
+## Assoluti + percentuali affiancati
+
+Con reparti di numerosità molto diversa, mostrare *solo* la percentuale rischia di dare a un 31% calcolato su 140 pazienti lo stesso peso visivo di un 22% su 510.
+La soluzione è accostare i due pannelli condividendo la regola di colore.
+
+```{r plot_patchwork, fig.height=3.6, fig.cap="Numerosità assoluta (sx) e distribuzione percentuale (dx): stessa mappatura colore."}
+g_abs <- dati %>%
+  count(divisione, esito) %>%
+  mutate(divisione = factor(divisione, levels = ordine)) %>%
+  ggplot(aes(y = divisione, x = n, fill = esito)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = palette_esito) +
+  labs(x = "N pazienti", y = NULL) +
+  theme_minimal(base_size = 9) +
+  theme(legend.position = "none")
+
+g_rel <- dati %>%
+  mutate(divisione = factor(divisione, levels = ordine)) %>%
+  ggplot(aes(y = divisione, fill = esito)) +
+  geom_bar(position = "fill", width = 0.7) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(values = palette_esito) +
+  labs(x = "%", y = NULL, fill = "Esito") +
+  theme_minimal(base_size = 9) +
+  theme(axis.text.y = element_blank(), legend.position = "right")
+
+g_abs + g_rel + plot_layout(widths = c(1, 1.2))
+```
+
+# Cosa portarsi a casa
+
+-   **Il colore è una regola, non un suggerimento.** `scale_fill_manual(values = c("No" = "rosso", "Si" = "verde"))` lega il valore al colore una volta per tutte: riproducibile a distanza di mesi, da chiunque.
+-   **Il codice è versionabile, una conversazione con Gemini no.** Git traccia ogni modifica; una chat la si perde.
+-   **L'AI resta utile — altrove.** Per *generare* la prima bozza di uno script come questo, per commentarlo, per suggerire alternative di visualizzazione. Il controllo dell'output finale, quando il dato è clinico e la presentazione conta, conviene restituirlo a uno strumento deterministico.
+-   **Costo-beneficio reale**: scrivere il primo `.Rmd` richiede tempo; il secondo caso simile si risolve cambiando due righe. È l'inverso della curva frustrante che ha descritto Giacomo.
+
+\vspace{0.5em}
+\hrule
+\vspace{0.5em}
+
+\footnotesize
+
+**Ambiente.** Compilato con R `r paste(R.version$major, R.version$minor, sep=".")` e i pacchetti: `tidyverse` (Wickham et al., 2019), `ggplot2` (Wickham, 2016), `scales` (Wickham & Seidel, 2022), `knitr` (Xie, 2014), `kableExtra` (Zhu, 2021), `patchwork` (Pedersen, 2020).
+
+**Come riprodurre.** Clonare la repository, aprire il file `.Rmd` in RStudio, premere **Knit → PDF**.
+Se mancano pacchetti, il blocco `setup` li installa automaticamente.
+Richiede una distribuzione LaTeX (in alternativa: `tinytex::install_tinytex()`).
+
+**Repository.** `https://github.com/<tuo-utente>/clinical-ai-workflows` (da personalizzare al primo commit).
